@@ -57,7 +57,7 @@ A parallel proving system adapted from a construction by Groth and Bootle \texti
 Spark transactions support efficient verification in batches, where range and spend proofs can take advantage of common proof elements and parameters to lower the marginal cost of verifying each proof in such a batch; when coupled with suitably-chosen sender anonymity sets, the verification time savings of batch verification can be significant.
 
 Spark enables additional useful functionality.
-The use of a modified Chaum-Pedersen discrete logarithm proof, which asserts spend authority and correct tag construction, enables efficient signing and multisignature operations similar to those of \cite{musig,frost,schnorrwithschnorr} where computationally-expensive proofs may be offloaded to more capable devices with limited trust requirements.
+The use of a modified Chaum-Pedersen discrete logarithm proof, which asserts spend authority and correct tag construction, offers an interesting avenue of research toward efficient signing and multisignature operations similar to those of \cite{musig,frost,schnorrwithschnorr} where computationally-expensive proofs may be offloaded to more capable devices with limited trust requirements; we defer such constructions and analysis to future work.
 The protocol further adds three levels of opt-in visibility into transactions without delegating spend authority.
 Incoming view keys allow a designated third party to identify transactions containing outputs destined for an address, as well as the corresponding amounts and encrypted memo data.
 Full view keys allow a designated third party to additionally identify when received outputs are later spent (but without any recipient data), which enables balance auditing and further enhances accountability in threshold multisignature applications where this property is desired.
@@ -66,7 +66,19 @@ Payment proofs allow a sender to assert the destination, value, and memo of a co
 All constructions used in Spark require only public parameter generation, ensuring that no trusted parties are required to bootstrap the protocol or ensure soundness.
 
 
-\section{Cryptographic Preliminaries}
+\subsection{Organization}
+
+In Section \ref{sec:primitives}, we define standard and novel cryptographic constructions required for the Spark protocol.
+Section \ref{sec:concepts} provides an overview of the concepts and algorithms defining the protocol; these include the structure of keys, addresses, coins, and linking tags.
+We then provide a detailed instantiation of the Spark algorithms in Section \ref{sec:instantiation}.
+
+Efficiency of our instantiation is analyzed in Appendix \ref{app:efficiency}.
+Proofs of security for two important zero-knowledge proving systems we describe are provided in Appendixes \ref{app:chaum} and \ref{app:parallel}, while overall protocol security proofs are given in Appendix \ref{app:security}.
+Finally, we describe a method for asserting validity of private coin information through payment proofs in Appendix \ref{app:payment}.
+
+
+\section{Cryptographic Constructions}
+\label{sec:primitives}
 
 Throughout this paper, we use additive notation for group operations.
 Let $\mathbb{N}$ be the set $\{0,1,2,\ldots\}$ of non-negative integers.
@@ -181,6 +193,7 @@ In practice, an efficient instantiation like Bulletproofs \cite{bp} or Bulletpro
 
 
 \section{Concepts and Algorithms}
+\label{sec:concepts}
 
 We now define the main concepts and algorithms used in the Spark transaction protocol.
 
@@ -233,6 +246,7 @@ We provide detailed descriptions below, and show security of the resulting proto
 
 
 \section{Algorithm Constructions}
+\label{sec:instantiation}
 
 In this section we provide detailed description of the DAP scheme algorithms.
 
@@ -505,134 +519,41 @@ If the input transaction is a spend transaction:
 \end{enumerate}
 
 
-\section{Multisignature Operations}
-
-It is often useful to permit transactions requiring multiple parties to authorize; the parties may be mututally untrusting, and it may not be sufficient to rely on a separate trusted third party.
-In this case, we require processes for distributed key and spend transaction generation that require either a set of specified parties or a threshold subset of a given size to complete.
-Specifically, we describe a method for such signing groups to perform the $\func{CreateKeys}$ and $\func{Spend}$ algorithms to produce keys and spend transactions indistinguishable from others.
-This method uses techniques from \cite{musig,schnorr,schnorrwithschnorr}.
-We defer a complete security analysis to future work.
-
-Throughout this section, suppose we have a group of $\nu$ players who wish to collaboratively produce keys, and such that a specified threshold $1 \leq t \leq \nu$ of the players is required to produce an authorizing proof spending coins directed to any address associated to the keys.
-
-For the modified algorithms we present here, sample cryptographic hash functions $$\hash_{\text{pok}},\hash_{s_1},\hash_{s_2},\hash_{\rho},\hash_{F},\hash_{H}: \{0,1\}^* \to \F$$ uniformly at random.
-
-
-\subsection{\texorpdfstring{$\func{CreateKeys}$}{CreateKeys}}
-
-To produce key components, each player $1 \leq \alpha \leq \nu$ engages in the following two-round key generation process:
-\begin{enumerate}
-    \item Selects a set of coefficients $\{a_{\alpha,j}\}_{j=0}^{t-1} \subset \F$ uniformly at random, and uses them to define the polynomial $f_\alpha(x) = \sum_{j=0}^{t-1} a_{\alpha,j}x^j$.
-    \item Selects view key shares $s_{1,\alpha},s_{2,\alpha} \in \F \setminus \{0\}$ uniformly at random.
-    \item Produces a proof of knowledge of $a_{\alpha,0}$:
-    \begin{enumerate}
-        \item Chooses $k_\alpha \in \F$ uniformly at random.
-        \item Sets $R_\alpha = k_\alpha G$.
-        \item Sets $c_\alpha = \hash_{\text{pok}}(\alpha,a_{\alpha,0}G,R_\alpha)$.
-        \item Sets $\mu_\alpha = k_\alpha + a_{\alpha,0}c_\alpha$.
-    \end{enumerate}
-    \item Produces a vector of commitments $C_\alpha = \{C_{\alpha,j}\}_{j=0}^{t-1} = \{a_{\alpha,j}G\}_{j=0}^{t-1}$ to its coefficients.
-    \item Sends the tuple $(R_\alpha,\mu_\alpha,C_\alpha,s_{1,\alpha},s_{2,\alpha})$ to all other players $1 \leq \beta \neq \alpha \leq \nu$.
-    \item On receipt of a tuple $(R_\beta,\mu_\beta,C_\beta,s_{1,\beta},s_{2,\beta})$ from another player $\beta$:
-    \begin{enumerate}
-        \item Checks that $s_{1,\beta} \neq 0$ and $s_{2,\beta} \neq 0$ and aborts otherwise.
-        \item Verifies the proof of knowledge by checking that $$\mu_\beta G - \hash_{\text{pok}}(\beta,C_{\beta,0},R_\beta)C_{\beta,0} = R_\beta$$ and aborting otherwise.
-    \end{enumerate}
-    \item For each $1 \leq \beta \leq \nu$, computes a player share $\widehat{r}_{\alpha,\beta} = f_\alpha(\beta)$ and sends it to player $\beta$.
-    \item On receipt of a player share $\widehat{r}_{\beta,\alpha}$ from another player $\beta$, verifies the share by checking that $$\sum_{j=0}^{t-1} \alpha^jC_{\beta,j} = \widehat{r}_{\beta,\alpha}G$$ and aborting otherwise.
-    \item Computes its private spend key share $r_\alpha = \sum_{\beta=1}^\nu \widehat{r}_{\beta,\alpha}$ and full view key component $D = \sum_{\beta=1}^\nu C_{\beta,0}$.
-    \item Computes the group view keys:
-    \begin{align*}
-        s_1 &= \sum_{\beta=1}^\nu \hash_{s_1}(\{s_{1,\gamma}\}_{\gamma=1}^\nu,\beta)s_{1,\beta} \\
-        s_2 &= \sum_{\beta=1}^\nu \hash_{s_2}(\{s_{2,\gamma}\}_{\gamma=1}^\nu,\beta)s_{2,\beta}
-    \end{align*}
-\end{enumerate}
-Using the tuple $(s_1,s_2,D)$, any player can additionally compute the full view key component $P_2 = \comm(s_2,0,0) + D$.
-Since each player holds the aggregate incoming view key, it can compute public addresses using $\func{CreateAddress}$ as needed.
-
-Note that each player should confirm that all other players have completed the key generation process before making addresses available to receive coins; otherwise, a malicious player might selectively fail to send its shares to all other players, meaning some players may be unable to properly compute their private spend key shares.
-
-
-\subsection{\texorpdfstring{$\func{Precompute}$}{Precompute}}
-
-The signing group can reduce the communication complexity of proof generation by precomputing and sharing sets of nonce data.
-Each future signing operation uses one such nonce set for each signing player, which cannot be reused.
-The signing group can precompute as many nonce sets as needed for expected signing operations, and can perform this operation whenever additional nonce sets are required.
-In particular, the group may wish to do so during the key generation process, where the added communication round may be less impactful than during later proof generation.
-
-To precompute $\pi$ sets of nonce data, each player $1 \leq \alpha \leq \nu$ engages in the following one-round process:
-\begin{enumerate}
-    \item For $0 \leq k < \pi$, it selects $d_{\alpha,k}, e_{\alpha,k} \in \F$ uniformly at random and defines $D_{\alpha,k} = d_{\alpha,k}G$ and $E_{\alpha,k} = e_{\alpha,k}G$.
-    \item Generates a vector $L_\alpha$ such that for $0 \leq k < \pi$, we have $L_{\alpha,k} = (D_{\alpha,k}, E_{\alpha,k})$; that is, $L_{\alpha}$ contains $\pi$ nonce pairs.
-    \item Sends $L_\alpha$ to all other players.
-    \item On receipt of a vector $L_\beta$ from another player $\beta$, checks that $D_{\beta,k} \neq 0$ and $E_{\beta,k} \neq 0$ for all $0 \leq k < \pi$, and aborts otherwise.
-\end{enumerate}
-
-
-
-\subsection{\texorpdfstring{$\func{Spend}$}{Spend}}
-
-Because all players possess the aggregate full view key corresponding to public addresses, any player can use it to construct all transaction components except the modified Chaum-Pedersen proof.
-We describe now how a threshold of $t$ signers collaboratively produce such a proof to authorize the spending of coins, with the following proof inputs (using our previous notation):
-$$\{pp_{\text{chaum}}, \{S_u', T_u\}_{u=0}^{w-1}; (\{s_u, r, -\hash_{\text{ser}'}(s_u, D)\}_{u=0}^{w-1})\}$$
-
-For the sake of notation convenience, we assume that the signing players are indexed $1 \leq \alpha \leq t$.
-Further, assume that each nonce list $L_\alpha$ contains $k + 1 \geq w$ unused nonces.
-We also assume the context binding value $\mu$ has been defined.
-Each such player $\alpha$ engages in the following one-round process:
-\begin{enumerate}
-    \item Parses the next available set of nonces $\{(D_{\beta,k-u},E_{\beta,k-u})\}_{u=0}^{w-1}$ in each $L_\beta$ for $1 \leq \beta \leq t$ (and removes them from each list after use) to compute, for $0 \leq u < w$, the following:
-    $$\rho_u = \hash_{\rho}(\{\beta,D_{\beta,k-u},E_{\beta,k-u}\}_{\beta=1}^{t},\mu,S_u',T_u)$$
-    \item Sets the initial proof commitments:
-    \begin{align*}
-        A_1 &= \sum_{u=0}^{w-1} \left( \hash_F(\rho_u)F + \hash_H(\rho_u)H + \sum_{\beta=1}^t \left( D_{\beta,k-u} + \rho E_{\beta,k-u} \right) \right) \\
-        \{A_{2,u}\}_{u=0}^{w-1} &= \left\{ \hash_F(\rho_u)T_u + \sum_{\beta=1}^t \left( D_{\beta,k-u} + \rho E_{\beta,k-u} \right) \right\}
-    \end{align*}
-    \item Computes the challenge $c$ using the proof transcript as in the original $\func{Spend}$ description.
-    \item Computes its Lagrange coefficient $$\lambda_\alpha = \prod_{\beta=1,\beta \neq \alpha}^t \left( \frac{\beta}{\beta-\alpha} \right)$$ and the response share $$t_{2,\alpha} = \sum_{u=0}^{w-1} (d_{\alpha,k-u} + \rho_u e_{\alpha,k-u} + \lambda_\alpha r_\alpha c^u),$$ and sends $t_{2,\alpha}$ to the other signing players.
-    \item On receipt of $t_{2,\beta}$ from another player, checks that $$t_{2,\beta}G = \sum_{u=0}^{w-1} \left( D_{\beta,k-u} + \rho_u E_{\beta,k-u} + c^u\lambda_{\beta} \sum_{\gamma=1}^{\nu}\sum_{j=0}^{t-1} \beta^j C_{\gamma,j} \right)$$ and aborts otherwise.
-    \item On receipt of all $t_{2,\beta}$ values, computes the proof responses:
-    \begin{align*}
-        \{t_{1,u}\}_{u=0}^{w-1} &= \{ \hash_F(\rho_u) + c^u s_u \} \\
-        t_2 &= \sum_{\beta=1}^t t_{2,\beta} \\
-        t_3 &= \sum_{u=0}^{w-1} (\hash_H(\rho_u) - c^u \hash_{\text{ser}'}(s_u,D))
-    \end{align*}
-\end{enumerate}
-
-
-\section{View Keys and Payment Proofs}
+\section{View Keys and Disclosure}
 
 The key and proof structures in Spark enable flexible and useful functionality relating to transaction scanning, generation, and disclosure.
 
 The incoming view key is used in $\func{Identify}$ operations to determine when a coin is directed to an associated public address, and to determine the coin's value and associated memo data.
-This permits two use cases of note.
-In one case, blockchain scanning can be delegated to a device or service without delegating spend authority for identified coins.
-In another case, wallet software in possession of a spend key can keep this key encrypted or otherwise securely stored during scanning operations, reducing key exposure risks.
+This permits useful functionality relating to scanning, where a designated device or service can watch for incoming coins without delegating spend authority.
 
-The full view key is used in $\func{Recover}$ operations to additionally compute the serial number and tag for coins directed to an associated public address.
+The full view key is used in $\func{Recover}$ operations to compute the serial number and tag for coins directed to an associated public address.
 These tags can be used to identify a transaction spending the coin.
-Providing this key to a third party permits identification of incoming transactions and detection of outgoing transactions, which additionally provides balance computation, without delegating spend authority.
+Providing this key to a third party permits identification of incoming transactions and detection of outgoing transactions, which additionally allows balance computation, without delegating spend authority.
 Users like public charities may wish to permit public oversight of funds with this functionality.
 Other users may wish to provide this functionality to an auditor or accountant for bookkeeping purposes.
-In the case where an address is used in threshold multisignature operations, a cosigner may wish to know if or when another cohort of cosigners has produced a transaction spending funds.
 
 Further, the full view key is used in $\func{Spend}$ to generate one-out-of-many proofs.
-Since the parallel one-out-of-many proof used in Spark can be computationally expensive, it may be unsuitable for generation by a computationally-limited device like a hardware wallet.
-Providing this key to a more powerful device enables easy generation of this proof (and other transaction components like range proofs), while ensuring that only the device holding the spend key can complete the transaction by generating the simple modified Chaum-Pedersen proof.
+Since these proofs can be computationally expensive, they may be unsuitable for generation by a computationally-limited device like a hardware wallet.
+Providing this key to a more powerful device enables easy preparation of a transaction that can only be authorized by the spend key.
 
-Payment proofs, which we introduce in Appendix \ref{app:payment}, allow for disclosure of data for individual coins.
-Specifically, a payment proof asserts in zero knowledge that the prover knows the spend key used to authorize the transaction generating a given coin that is destined for a given public address.
-The proof convinces a verifier that the holder of the incoming view key for the public address can successfully identify the coin, as well as provides the verifier with the value and memo for the coin.
+Payment proofs, which we discuss in Appendix \ref{app:payment}, allow for disclosure of data for individual coins by asserting in zero knowledge that the prover knows the spend key used to authorize the transaction generating a coin to a specific address, in addition to providing the verifier with the value and memo for the coin.
 Unlike view keys, which provide broad visibility into transactions associated to a public address, a payment proof is limited to a single coin and can be bound to an arbitrary proof context to prevent replay.
 
-Payment proofs may be useful in a number of circumstances.
-For example, a customer may issue a payment to a retailer, but fail to use the correct diversified address or memo required by the retailer to associate the payment to the customer's order.
-By providing the retailer with a payment proof, the customer can assert that it produced a coin destined for the retailer's address.
-In another use case, a business may wish to make public details of a donation to a charity without publicly disclosing its full view key.
-By providing a payment proof, anyone can verify that the specified coin was destined for the charity's address and confirm the value and memo associated to the coin.
+
+\section*{Acknowledgments}
+
+The authors thank pseudonymous collaborator \texttt{koe} for ongoing discussions during the development of this work.
+The authors gratefully acknowledge Nikolas Kr\"{a}tzschmar for identifying an earlier protocol flaw relating to tag generation.
+
+
+\bibliographystyle{splncs04}
+\bibliography{main}
+
+\appendix
 
 
 \section{Efficiency}
+\label{app:efficiency}
 
 It is instructive to examine the efficiency of spend transactions in size, generation complexity, and verification complexity.
 In addition to our previous notation for parameters, let $v_{\text{max}} = 2^{64}$, so coin values and fees can be represented by $8$-byte unsigned integers.
@@ -692,18 +613,6 @@ Table \ref{table:time} shows the verification batch complexity in terms of total
 We further comment that the parallel one-out-of-many proving system presented in this paper may be further optimized in verification.
 Because corresponding elements of the $\{S_i\}$ and $\{V_i\}$ input sets are weighted identically in the protocol verification equations, it may be more efficient (depending on implementation) to combine these elements with a sufficient weight prior to applying the proof-specific weighting identified above for batch verification.
 Initial tests using a variable-time curve library suggest significant reductions in verification time with this technique.
-
-
-\section*{Acknowledgments}
-
-The authors thank pseudonymous collaborator \texttt{koe} for ongoing discussions during the development of this work.
-The authors gratefully acknowledge Nikolas Kr\"{a}tzschmar for identifying an earlier protocol flaw relating to tag generation.
-
-
-\bibliographystyle{splncs04}
-\bibliography{main}
-
-\appendix
 
 
 \section{Modified Chaum-Pedersen Proving System}
