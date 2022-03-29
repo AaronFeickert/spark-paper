@@ -519,7 +519,7 @@ If the input transaction is a spend transaction:
 \end{enumerate}
 
 
-\section{View Keys and Disclosure}
+\section{Key and Proof Structure}
 
 The key and proof structures in Spark enable flexible and useful functionality relating to transaction scanning, generation, and disclosure.
 
@@ -538,6 +538,11 @@ Providing this key to a more powerful device enables easy preparation of a trans
 
 Payment proofs, which we discuss in Appendix \ref{app:payment}, allow for disclosure of data for individual coins by asserting in zero knowledge that the prover knows the spend key used to authorize the transaction generating a coin to a specific address, in addition to providing the verifier with the value and memo for the coin.
 Unlike view keys, which provide broad visibility into transactions associated to a public address, a payment proof is limited to a single coin and can be bound to an arbitrary proof context to prevent replay.
+
+Finally, the structure of modified Chaum-Pedersen proofs is linear in the spend key.
+This means that efficient multisignature constructions, like those introduced in \cite{musig,frost,schnorrwithschnorr}, can likely be modified to this proving system.
+Such constructions permit the secure construction of a distributed spend key requiring a threshold of signers to authorize transactions.
+The preprint version of this paper describes one such construction in detail, but leaves a complete security analysis to future work.
 
 
 \section*{Acknowledgments}
